@@ -1,80 +1,81 @@
-# Physics-Guided Underwater Image Enhancement
+# Physics-Guided Residual U-Net for Underwater Image Enhancement
 
-Hybrid learning-based and physics-guided underwater image enhancement pipeline for research workflows (CVPR-style experimentation), implemented in PyTorch.
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)]()
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.x-ee4c2c.svg)]()
+[![License](https://img.shields.io/badge/License-Research%20Only-lightgrey.svg)]()
 
-## Overview
+Official research codebase for a hybrid **learning-based + physics-guided** underwater image enhancement framework, developed for CVPR-style experimentation.  
+The method combines a residual U-shaped restoration network with a physics-prior transmission branch and multi-scale feature modulation.
 
-This repository implements a residual U-shaped enhancement network with a physics-prior branch:
+## Abstract
 
-- A **main restoration branch** predicts a residual correction for underwater images.
-- A **physics-guided prior branch** estimates a pseudo-transmission map.
-- Multi-scale feature modulation applies:
-  - `F_mod^(s) = F^(s) * phi_s(resize(T))`
+Underwater image formation is affected by wavelength-dependent attenuation and backscatter, which jointly degrade contrast, color fidelity, and visibility. This repository implements a physics-guided enhancement architecture where a pseudo-transmission prior is estimated and injected into restoration features at multiple scales. The restoration stream predicts bounded residual corrections rather than full-image synthesis, improving optimization stability and structure preservation. The training pipeline supports mixed precision, multi-domain paired training, and standard full-reference metrics (PSNR/SSIM), with optional underwater no-reference proxy metrics (UCIQE/UIQM proxies).
 
-Final output uses residual reconstruction:
+## Method Summary
 
-- `DeltaI = 0.2 * tanh(head(features))`
-- `I_hat = clip(I + DeltaI, 0, 1)`
+Given degraded input \(I\), the model predicts:
 
-## Key Features
+1. A pseudo-transmission map \(T = g_{\psi}(I)\) from the physics branch.
+2. Multi-scale restoration features \(F^{(s)}\) from the main U-shaped branch.
+3. Modulated features:
+   \[
+   F^{(s)}_{\text{mod}} = F^{(s)} \odot \phi_s(\text{resize}(T))
+   \]
+4. A bounded residual correction:
+   \[
+   \Delta I = 0.2 \cdot \tanh(\text{Head}(F^{(1)}_{\text{mod}}))
+   \]
+5. Final enhanced output:
+   \[
+   \hat I = \text{clip}(I + \Delta I, 0, 1)
+   \]
 
-- Physics-guided multi-scale feature modulation.
-- Lightweight residual U-Net backbone (single-GPU friendly).
-- Mixed precision training (`torch.cuda.amp`).
-- Composite loss (Charbonnier/L1 + SSIM + edge consistency).
-- Full-reference metrics: PSNR, SSIM.
-- Underwater proxy metrics: UCIQE proxy, UIQM proxy.
-- Train / eval / infer CLI in one script.
-
-## Repository Layout
+## Repository Structure
 
 ```text
-CVPR/
-├── main.py          # Train / eval / infer entrypoint
-├── models.py        # Network architecture (restoration + prior branch)
-├── data.py          # Paired/unpaired datasets + augmentation
-├── losses.py        # Composite training losses
-├── metrics.py       # Evaluation metrics
-├── utils.py         # Seed + checkpoint helpers
-├── detail.md        # Architecture change log + hyperparameters
-├── info.md          # Methodology notes
-├── diag.tex         # Paper-ready architecture diagram (TikZ)
-└── outputs*/        # Experiment artifacts
+.
+├── main.py          # CLI entrypoint: train / eval / infer
+├── models.py        # Physics-guided residual U-Net architecture
+├── data.py          # Paired/unpaired datasets and synchronized augmentations
+├── losses.py        # Composite loss (reconstruction + SSIM + edge + optional NR)
+├── metrics.py       # PSNR / SSIM / UCIQE-proxy / UIQM-proxy
+├── utils.py         # Seeding and checkpoint utilities
+├── detail.md        # Architecture change log + hyperparameter documentation
+├── info.md          # Methodology narrative
+├── diag.tex         # LaTeX/TikZ architecture + backprop diagram
+└── outputs*         # Experiment artifacts
 ```
 
 ## Environment
 
-The recommended environment used in this project is `gappy`.
-
-Example:
+### Recommended
 
 ```bash
 conda activate gappy
 python -V
 ```
 
-Install core dependencies if needed:
+### Minimal dependencies
 
 ```bash
 pip install torch torchvision numpy pillow tqdm matplotlib tensorboard
 ```
 
-## Data Format
+## Dataset Protocol
 
-Paired training expects one-to-one filename matching between degraded and clean directories.
+### Paired supervision
 
-Example EUVP paired layout:
+- Degraded images: `trainA`
+- Clean targets: `trainB`
+- Pairing rule: basename matching (e.g., `im_xxx_.jpg` ↔ `im_xxx_.jpg`)
 
-```text
-EUVP/Paired/underwater_scenes/trainA  # degraded
-EUVP/Paired/underwater_scenes/trainB  # clean
-```
+### Multi-domain paired training
 
-Multi-domain paired training is supported using comma-separated paths (quoted as a single argument).
+The training CLI accepts **comma-separated path lists** (quoted as one argument), enabling joint training across domains (e.g., `underwater_scenes`, `underwater_dark`, `underwater_imagenet`).
 
 ## Training
 
-### Recommended Multi-Domain Training Command
+### Recommended CVPR-style recipe (multi-domain paired)
 
 ```bash
 python -u /home/zahid/Projects/CVPR/main.py train \
@@ -104,13 +105,13 @@ python -u /home/zahid/Projects/CVPR/main.py train \
   --no-tb
 ```
 
-Notes:
+### Notes
 
-- Keep comma-separated path lists inside quotes.
-- If memory is limited, reduce `--batch` first (for example, `8 -> 4`) and optionally `--base` (`48 -> 32`).
-- Validation metrics are printed every `--val-interval` epochs.
+- Use quotes around comma-separated directory lists.
+- If memory is limited: reduce `--batch` (first) and then `--base`.
+- Validation metrics are printed only at epochs matching `--val-interval`.
 
-## Evaluation
+## Evaluation (paired)
 
 ```bash
 python -u /home/zahid/Projects/CVPR/main.py eval \
@@ -125,20 +126,25 @@ python -u /home/zahid/Projects/CVPR/main.py eval \
   --save-transmission
 ```
 
-Eval writes:
+### Eval outputs
 
-- `.../eval/eval_<timestamp>/images/*_inp_pred_gt.png`
-- `.../eval/eval_<timestamp>/images/*_T.png` (if enabled)
-- `.../eval/eval_<timestamp>/metrics.json`
-- `.../eval/eval_<timestamp>/metrics.csv`
+```text
+outputs_v3/eval/eval_<timestamp>/
+├── metrics.json
+├── metrics.csv
+└── images/
+    ├── 00000_inp_pred_gt.png
+    ├── 00000_T.png
+    └── ...
+```
 
 Panel order in `*_inp_pred_gt.png`:
 
-1. Input degraded image
-2. Predicted enhanced image
-3. Ground-truth clean image
+1. input degraded image
+2. predicted enhanced image
+3. ground-truth clean image
 
-## Inference
+## Inference (unpaired folder)
 
 ```bash
 python -u /home/zahid/Projects/CVPR/main.py infer \
@@ -149,30 +155,73 @@ python -u /home/zahid/Projects/CVPR/main.py infer \
   --save-transmission
 ```
 
-Infer writes enhanced outputs to `--out-dir` with original filenames, plus `*_T.png` maps if requested.
+Outputs include enhanced images and optional transmission maps (`*_T.png`).
 
-## Output Artifacts
+## Loss Function
 
-### Training (`outputs_v*/train/train_<timestamp>`)
+Training uses:
 
-- `args.json`
-- `ckpt_epoch_*.pt`
-- `ckpt_best.pt`
+\[
+\mathcal{L} = \lambda_{rec}\mathcal{L}_{rec} + \lambda_{ssim}\mathcal{L}_{ssim} + \lambda_{edge}\mathcal{L}_{edge} + \lambda_{nr}\mathcal{L}_{nr}
+\]
 
-### Eval (`outputs_v*/eval/eval_<timestamp>`)
+Current default supervised configuration:
 
-- `metrics.json`
-- `metrics.csv`
-- `images/` comparisons and transmission maps
+- \(\lambda_{rec}=1.0\)
+- \(\lambda_{ssim}=0.3\)
+- \(\lambda_{edge}=0.1\)
+- \(\lambda_{nr}=0.0\)
 
-### Inference (`outputs_v*/infer_samples`)
+## Metrics
 
-- enhanced images
-- optional transmission maps (`*_T.png`)
+### Full-reference
 
-## Architecture Diagram
+- PSNR
+- SSIM
 
-Source:
+### Underwater no-reference proxies
+
+- UCIQE proxy
+- UIQM proxy
+
+## Reproducibility
+
+- Set random seed via `--seed` (default: `42`).
+- Training args are saved in each run directory (`args.json`).
+- Checkpoints are periodically saved (`ckpt_epoch_*.pt`) and best model as `ckpt_best.pt`.
+
+## Expected Artifacts
+
+### Train
+
+```text
+outputs_v3/train/train_<timestamp>/
+├── args.json
+├── ckpt_best.pt
+└── ckpt_epoch_*.pt
+```
+
+### Eval
+
+```text
+outputs_v3/eval/eval_<timestamp>/
+├── metrics.json
+├── metrics.csv
+└── images/
+```
+
+### Infer
+
+```text
+outputs_v3/infer_samples/
+├── <image>.jpg
+├── <image>_T.png
+└── ...
+```
+
+## Diagram
+
+Architecture/backprop figure source:
 
 - `diag.tex`
 
@@ -186,42 +235,40 @@ Output:
 
 - `diag.pdf`
 
-## Important Training Notes
-
-- `I_gt` is the clean target in paired supervision.
-- `T` is the pseudo-transmission map from the physics prior branch.
-- `phi_s(T)` maps transmission to per-scale modulation weights.
-- Backpropagation updates all connected modules:
-  - residual head
-  - decoder, bottleneck, encoder
-  - modulation modules
-  - physics prior branch via `T`
-
 ## Troubleshooting
 
-### Command parsing fails (ambiguous options or missing paths)
+### `ambiguous option: --w- ...`
 
-Cause is usually line breaks or accidental spaces inside arguments.
+This is a shell line-break issue. Re-run the command without broken flags (e.g., keep `--w-l1` intact).
 
-Fix:
+### `No paired samples found`
 
-- Use one clean command line, or proper `\` continuation.
-- Always quote comma-separated directory lists.
+Check basename matching between degraded/clean paths and ensure path list counts match for multi-domain mode.
 
-### No training progress appears
+### No logs visible
 
-Try:
+Use `python -u ...`, and for debug runs use:
 
-- `python -u ...` for unbuffered output.
-- `--workers 0 --log-interval 1` for debugging visibility.
-
-### Pairing error: "No paired samples found"
-
-Check:
-
-- degraded and clean filenames must match by basename.
-- paired degraded/clean list lengths must be identical for multi-domain mode.
+- `--workers 0`
+- `--log-interval 1`
 
 ## Citation
 
-If you use this codebase in academic work, please cite your project paper and mention this implementation repository in the supplementary material.
+If you use this repository in academic work, please cite your paper/release corresponding to this implementation.
+
+```bibtex
+@misc{physics_guided_underwater_2026,
+  title        = {Physics-Guided Residual U-Net for Underwater Image Enhancement},
+  author       = {Your Name et al.},
+  year         = {2026},
+  note         = {Code repository}
+}
+```
+
+## Contact
+
+For technical issues or reproducibility questions, open an issue with:
+
+- exact command
+- error trace
+- run directory (`outputs*/train/train_<timestamp>`)
