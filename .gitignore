@@ -127,3 +127,11 @@ outputs_v3
 *.bbl
 *.gz
 *.zip       
+diag.pdf
+diag.tex
+diag.aux
+diag.log
+diag.out
+diag.toc
+diag.synctex.gz
+diag.fls            
