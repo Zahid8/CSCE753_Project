@@ -114,3 +114,16 @@ EUVP/
 outputs
 outputs_v2
 outputs_v3
+*.tex
+*.pdf
+*.out
+*.log
+*.aux
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.blg
+*.bbl
+*.gz
+*.zip       
