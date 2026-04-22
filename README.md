@@ -4,6 +4,8 @@ PyTorch implementation of **Underwater Image Enhancement with Learning-Based and
 
 The model performs underwater enhancement as **physics-guided residual restoration** rather than direct full-image generation. A dedicated prior branch estimates a pseudo-transmission map, `T = g_psi(I)`, encoding spatially varying attenuation. For each encoder/decoder scale, transmission is resized and transformed by a learnable mapper `phi_s`, then used to modulate features with element-wise gating, improving degradation-aware correction behavior. The output head predicts a bounded residual and reconstructs the enhanced image through residual addition, preserving scene structure while stabilizing optimization. Training uses a composite objective (reconstruction + SSIM + edge consistency) with mixed-precision optimization for high-resolution efficiency. This design jointly optimizes restoration features and the physics prior pathway through end-to-end backpropagation.
 
+![Architecture Diagram](diag.png)
+
 ## Highlights
 
 - Multi-scale physics-guided feature modulation: `F_mod^(s) = F^(s) ⊙ phi_s(resize(T))`
